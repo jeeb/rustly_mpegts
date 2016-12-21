@@ -1,0 +1,6 @@
+[package]
+name = "rustly_mpegts"
+version = "0.1.0"
+authors = ["Jan Ekström <jeebjp@gmail.com>"]
+
+[dependencies]
