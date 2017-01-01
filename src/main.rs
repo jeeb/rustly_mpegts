@@ -11,6 +11,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::Result;
 use std::path::Path;
 use std::fmt;
 use byteorder::{BigEndian, ReadBytesExt};
@@ -65,6 +66,53 @@ impl fmt::Display for TransportPacket {
                self.continuity_counter,
                self.final_byte)
     }
+}
+
+fn read_transport_packet(file: &mut File) -> Result<TransportPacket> {
+    let mut read_byte = [0; 1];
+    let mut transport_packet_buf = [0; 188];
+
+    while read_byte[0] != SYNC_BYTE_VALUE {
+        match file.read(&mut read_byte) {
+            Err(why) => {
+                error!("Failed to read {} byte(s): {}", read_byte.len(),
+                                                      why.description());
+                return Err(why);
+            },
+            Ok(count) => {
+                info!("Read {} byte(s)!", count);
+                count
+            }
+        };
+    }
+
+    error!("Test: {:#x}", read_byte[0]);
+
+    // FIXME: remove this after we switch to buffered stuff/peeking for the sync byte
+    match file.seek(SeekFrom::Current(-1)) {
+        Err(why) => {
+            error!("Failed to seek: {}", why.description());
+            return Err(why);
+        },
+        Ok(pos) => {
+            error!("Seeked to position {}!", pos);
+        }
+    }
+
+    // Read our fabulous MPEG-TS packet!
+    match file.read(&mut transport_packet_buf) {
+        Err(why) => {
+            error!("Failed to read {} byte(s): {}", transport_packet_buf.len(),
+                                                  why.description());
+            return Err(why);
+        },
+        Ok(count) => {
+            error!("Read {} byte(s)!", count);
+            count
+        }
+    };
+
+    return Ok(TransportPacket::new(&transport_packet_buf));
 }
 
 fn main() {
@@ -134,4 +182,13 @@ fn main() {
 
     let transport_packet = TransportPacket::new(&transport_packet_buf);
     error!("packet parsed:\n{}", transport_packet);
+
+    match read_transport_packet(&mut file) {
+        Err(why) => {
+            error!("Failure at reading a transport packet: {}", why);
+        },
+        Ok(tp) => {
+            error!("packet parsed:\n{}", tp);
+        }
+    }
 }
