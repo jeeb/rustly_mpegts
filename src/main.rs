@@ -118,8 +118,7 @@ fn read_transport_packet(file: &mut File) -> Result<TransportPacket> {
 fn main() {
     env_logger::init().unwrap();
     let args: Vec<String> = env::args().collect();
-    let mut read_byte = [0; 1];
-    let mut transport_packet_buf = [0; 188];
+    let mut failed_to_read = false;
 
     if args.len() < 2 {
         error!("Not enough parameters! Usage: {} FILE", args[0]);
@@ -140,55 +139,15 @@ fn main() {
 
     info!("Starting to read {}", printable_path);
 
-    while read_byte[0] != SYNC_BYTE_VALUE {
-        match file.read(&mut read_byte) {
+    while !failed_to_read {
+        match read_transport_packet(&mut file) {
             Err(why) => {
-                error!("Failed to read {} byte(s): {}", read_byte.len(),
-                                                      why.description());
-                return;
+                error!("Failure at reading a transport packet: {}", why);
+                failed_to_read = true;
             },
-            Ok(count) => {
-                error!("Read {} byte(s)!", count);
-                count
+            Ok(tp) => {
+                error!("packet parsed:\n{}", tp);
             }
-        };
-    }
-
-    error!("Test: {:#x}", read_byte[0]);
-
-    // FIXME: remove this after we switch to buffered stuff/peeking for the sync byte
-    match file.seek(SeekFrom::Current(-1)) {
-        Err(why) => {
-            error!("Failed to seek: {}", why.description());
-            return;
-        },
-        Ok(pos) => {
-            error!("Seeked to position {}!", pos);
-        }
-    }
-
-    // Read our fabulous MPEG-TS packet!
-    match file.read(&mut transport_packet_buf) {
-        Err(why) => {
-            error!("Failed to read {} byte(s): {}", transport_packet_buf.len(),
-                                                  why.description());
-            return;
-        },
-        Ok(count) => {
-            error!("Read {} byte(s)!", count);
-            count
-        }
-    };
-
-    let transport_packet = TransportPacket::new(&transport_packet_buf);
-    error!("packet parsed:\n{}", transport_packet);
-
-    match read_transport_packet(&mut file) {
-        Err(why) => {
-            error!("Failure at reading a transport packet: {}", why);
-        },
-        Ok(tp) => {
-            error!("packet parsed:\n{}", tp);
         }
     }
 }
