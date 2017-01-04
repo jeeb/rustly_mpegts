@@ -11,7 +11,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
-use std::io::Result;
 use std::path::Path;
 use std::fmt;
 use byteorder::{BigEndian, ReadBytesExt};
@@ -28,12 +27,12 @@ struct TransportPacket {
 }
 
 impl TransportPacket {
-    pub fn new(buf: &[u8]) -> TransportPacket {
+    pub fn new(buf: &[u8]) -> Result<TransportPacket, &'static str> {
         if buf.len() < 188 {
-            error!("Length of buffer is less than 188 bytes ({})!", buf.len());
+            return Err("Length of buffer is less than 188 bytes!");
         }
 
-        TransportPacket {
+        let tp = TransportPacket {
             transport_error_indicator: (buf[1] & 0b10000000) != 0,
             payload_unit_start_indicator: (buf[1] & 0b01000000) != 0,
             transport_priority: (buf[1] & 0b00100000) != 0,
@@ -42,7 +41,9 @@ impl TransportPacket {
             adaptation_field_control: (buf[3] & 0b00110000) >> 4,
             continuity_counter: buf[3] & 0b1111,
             final_byte: buf[3]
-        }
+        };
+
+        return Ok(tp);
     }
 }
 
@@ -68,7 +69,7 @@ impl fmt::Display for TransportPacket {
     }
 }
 
-fn read_transport_packet(file: &mut File) -> Result<TransportPacket> {
+fn read_transport_packet(file: &mut File) -> Result<TransportPacket, std::io::Error> {
     let mut read_byte = [0; 1];
     let mut transport_packet_buf = [0; 188];
 
@@ -112,7 +113,15 @@ fn read_transport_packet(file: &mut File) -> Result<TransportPacket> {
         }
     };
 
-    return Ok(TransportPacket::new(&transport_packet_buf));
+    match TransportPacket::new(&transport_packet_buf) {
+        Err(why) => {
+            error!("Failed to parse a transport packet: {}", why);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, why));
+        },
+        Ok(tp) => {
+            return Ok(tp);
+        }
+    }
 }
 
 fn main() {
