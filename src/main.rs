@@ -45,6 +45,10 @@ impl TransportPacket {
 
         return Ok(tp);
     }
+
+    pub fn is_pat(&self) -> bool {
+        return self.pid == 0x00;
+    }
 }
 
 impl fmt::Display for TransportPacket {
