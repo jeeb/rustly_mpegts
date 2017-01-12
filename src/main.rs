@@ -15,7 +15,11 @@ use std::path::Path;
 use std::fmt;
 use byteorder::{BigEndian, ReadBytesExt};
 
-struct TransportPacket {
+struct AdaptationField {
+    length: u8
+}
+
+struct TransportPacketHeader {
     transport_error_indicator: bool,
     payload_unit_start_indicator: bool,
     transport_priority: bool,
@@ -26,35 +30,23 @@ struct TransportPacket {
     final_byte: u8,
 }
 
-impl TransportPacket {
-    pub fn new(buf: &[u8]) -> Result<TransportPacket, &'static str> {
-        if buf.len() < 188 {
-            return Err("Length of buffer is less than 188 bytes!");
-        }
-
-        let tp = TransportPacket {
-            transport_error_indicator: (buf[1] & 0b10000000) != 0,
-            payload_unit_start_indicator: (buf[1] & 0b01000000) != 0,
-            transport_priority: (buf[1] & 0b00100000) != 0,
-            pid: (((buf[1] as u16) << 8) | (buf[2] as u16)) & 0b0001111111111111,
-            transport_scrambling_control: (buf[3] & 0b11000000) >> 6,
-            adaptation_field_control: (buf[3] & 0b00110000) >> 4,
-            continuity_counter: buf[3] & 0b1111,
-            final_byte: buf[3]
-        };
-
-        return Ok(tp);
-    }
-
+impl TransportPacketHeader {
     pub fn is_pat(&self) -> bool {
         return self.pid == 0x00;
     }
+
+    pub fn has_adaptation_field(&self) -> bool {
+        return (self.adaptation_field_control & 0b10) != 0;
+    }
+
+    pub fn has_payload(&self) -> bool {
+        return (self.adaptation_field_control & 0b01) != 0
+    }
 }
 
-impl fmt::Display for TransportPacket {
+impl fmt::Display for TransportPacketHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"transport packet: \n\
-               \ttransport_error_indicator: {}\n\
+        write!(f,"\ttransport_error_indicator: {}\n\
                \tpayload_unit_start_indicator: {}\n\
                \ttransport_priority: {}\n\
                \tpid: {:#x}\n\
@@ -70,6 +62,82 @@ impl fmt::Display for TransportPacket {
                self.adaptation_field_control,
                self.continuity_counter,
                self.final_byte)
+    }
+}
+
+struct TransportPacket {
+    header: TransportPacketHeader,
+    adaptation_field: Option<AdaptationField>,
+}
+
+impl TransportPacket {
+    pub fn new(buf: &[u8]) -> Result<TransportPacket, String> {
+        if buf.len() < 188 {
+            return Err("Length of buffer is less than 188 bytes!".to_string());
+        }
+
+        let header = TransportPacketHeader {
+            transport_error_indicator: (buf[1] & 0b10000000) != 0,
+            payload_unit_start_indicator: (buf[1] & 0b01000000) != 0,
+            transport_priority: (buf[1] & 0b00100000) != 0,
+            pid: (((buf[1] as u16) << 8) | (buf[2] as u16)) & 0b0001111111111111,
+            transport_scrambling_control: (buf[3] & 0b11000000) >> 6,
+            adaptation_field_control: (buf[3] & 0b00110000) >> 4,
+            continuity_counter: buf[3] & 0b1111,
+            final_byte: buf[3],
+        };
+
+        let mut af: Option<AdaptationField> = None;
+
+        if header.has_adaptation_field() {
+            let af_length = buf[4];
+
+            match header.has_payload() {
+                true => {
+                    if af_length > 182 {
+                        return Err(format!("AdaptationField length too large! ({})", af_length));
+                    }
+                },
+                false => {
+                    if af_length != 183 {
+                        return Err(format!("No payload and AdaptationField length not exactly 183! ({})", af_length));
+                    }
+                },
+            };
+
+            af = Some(AdaptationField {
+                length: af_length,
+            });
+        }
+
+        if header.has_payload() {
+
+        }
+
+        return Ok(TransportPacket {
+            header: header,
+            adaptation_field: af,
+        });
+    }
+
+    pub fn is_pat(&self) -> bool {
+        return self.header.is_pat();
+    }
+
+    pub fn has_adaptation_field(&self) -> bool {
+        return self.header.has_adaptation_field();
+    }
+
+    pub fn has_payload(&self) -> bool {
+        return self.header.has_payload();
+    }
+}
+
+impl fmt::Display for TransportPacket {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "transport packet:\n\
+                   header:\n\
+                   {}", self.header)
     }
 }
 
@@ -159,7 +227,9 @@ fn main() {
                 failed_to_read = true;
             },
             Ok(tp) => {
-                error!("packet parsed:\n{}", tp);
+                if tp.is_pat() {
+                    error!("PAT FOUND:\n{}", tp);
+                }
             }
         }
     }
