@@ -15,8 +15,22 @@ use std::path::Path;
 use std::fmt;
 use byteorder::{BigEndian, ReadBytesExt};
 
+#[derive(Debug)]
+struct AdaptationFieldHeader {
+    discontinuity_indicator: bool,
+    random_access_indicator: bool,
+    elementary_stream_priority_indicator: bool,
+    pcr_flag: bool,
+    opcr_flag: bool,
+    splicing_point_flag: bool,
+    transport_private_data_flag: bool,
+    adaptation_field_extension_flag: bool,
+}
+
+#[derive(Debug)]
 struct AdaptationField {
-    length: u8
+    length: u8,
+    header: Option<AdaptationFieldHeader>,
 }
 
 struct TransportPacketHeader {
@@ -90,7 +104,11 @@ impl TransportPacket {
         let mut af: Option<AdaptationField> = None;
 
         if header.has_adaptation_field() {
-            let af_length = buf[4];
+            let af_data = &buf[4 ..];
+
+            let mut af_header: Option<AdaptationFieldHeader> = None;
+
+            let af_length = af_data[0];
 
             match header.has_payload() {
                 true => {
@@ -105,8 +123,22 @@ impl TransportPacket {
                 },
             };
 
+            if af_length > 0 {
+                af_header = Some(AdaptationFieldHeader{
+                    discontinuity_indicator:              (af_data[1] & 0b10000000) != 0,
+                    random_access_indicator:              (af_data[1] & 0b01000000) != 0,
+                    elementary_stream_priority_indicator: (af_data[1] & 0b00100000) != 0,
+                    pcr_flag:                             (af_data[1] & 0b00010000) != 0,
+                    opcr_flag:                            (af_data[1] & 0b00001000) != 0,
+                    splicing_point_flag:                  (af_data[1] & 0b00000100) != 0,
+                    transport_private_data_flag:          (af_data[1] & 0b00000010) != 0,
+                    adaptation_field_extension_flag:      (af_data[1] & 0b00000001) != 0,
+                });
+            }
+
             af = Some(AdaptationField {
                 length: af_length,
+                header: af_header,
             });
         }
 
@@ -136,8 +168,8 @@ impl TransportPacket {
 impl fmt::Display for TransportPacket {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "transport packet:\n\
-                   header:\n\
-                   {}", self.header)
+                   header:\n{}\n\
+                   adaptation_field:\n\t{:?}", self.header, self.adaptation_field.as_ref())
     }
 }
 
